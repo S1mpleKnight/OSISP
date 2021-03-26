@@ -5,6 +5,8 @@
 Вычислить коэффициент использования дискового пространства в %. Для получения размера занимаемого файлами 
 на диске пространства использовать команду stat. */
 
+//в расчет не включаю ссылки типа "." и ".." 
+
 #include <stdio.h>
 #include <errno.h>
 #include <dirent.h>
@@ -13,9 +15,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-unsigned long* count_space(char*, unsigned long*);
+struct stat start_dir;
 
-void main(int argc, char* argv[]){
+unsigned long* count_space(char*, unsigned long*);
+int take_start_stat(char*);
+
+void main(int argc, char* argv[])
+{
 	if (argc != 2) {
 		fprintf(stderr, "%s", "error: invalid number of args\n\r");
 		return;
@@ -23,10 +29,26 @@ void main(int argc, char* argv[]){
 	char *string_dir = argv[1];
 
 	unsigned long result[2];
-	count_space(string_dir, result);
+	int check = take_start_stat(string_dir);
+	if (check == 0) {
+		count_space(string_dir, result);
+	}
 }
 
-unsigned long* count_space(char* path, unsigned long* array){
+int take_start_stat(char *path)
+{
+       	int res = stat(path, &start_dir);
+       	if (res != 0){
+                char info[256] = {0};
+                sprintf(info, "%s %s", path, "stat()");
+                perror(info);
+	}
+	return res;
+}
+
+
+unsigned long* count_space(char* path, unsigned long* array)
+{
 	DIR *directory;
         directory = opendir(path);
         if (directory == NULL) {
@@ -48,12 +70,21 @@ unsigned long* count_space(char* path, unsigned long* array){
 		char buf[512] = {0};
 		char cwd[256] = {0};
 		unsigned long space[2] = {0};
-		sprintf(buf, "%s/%s", path, read_dir->d_name);
-		int res = stat(buf, &stats);
+		if (strcmp("/", path) == 0){
+			sprintf(buf, "%s%s", path, read_dir->d_name);
+		} else {
+			sprintf(buf, "%s/%s", path, read_dir->d_name);
+		}
+		int res = lstat(buf, &stats);
+
+		if (stats.st_dev != start_dir.st_dev){
+                        read_dir = readdir(directory);
+                        continue;
+                }
 
 		if (res != 0){
-			char info[256] = {0};
-                	sprintf(info, "%s %s", path, "stat()");
+			char info[1024] = {0};
+                	sprintf(info, "%s %s", buf, "stat()");
                 	perror(info);
 			read_dir = readdir(directory);
 			errno = 0;
@@ -62,13 +93,13 @@ unsigned long* count_space(char* path, unsigned long* array){
 
 		if ((stats.st_mode & S_IFMT) == S_IFDIR){
 			if (!((strcmp(read_dir->d_name, ".") == 0) || (strcmp(read_dir->d_name, "..") == 0))){
-	                        real_space += stats.st_size;
-        	                used_space += (stats.st_blocks * stats.st_blksize);
+				real_space += stats.st_size;
+				used_space += (stats.st_blocks * stats.st_blksize);
 				count_space(buf, space);
 				real_space += space[0];
 				used_space += space[1];
 			}
-		} else {
+     		} else {
 			real_space += stats.st_size;
                 	used_space += (stats.st_blocks * stats.st_blksize);
 		}
